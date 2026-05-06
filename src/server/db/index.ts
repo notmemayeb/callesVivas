@@ -7,8 +7,9 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPrismaClient() {
+  const connectionString = process.env.DATABASE_URL!.replace(/[?&]sslmode=[^&]*/g, "").replace(/\?$/, "");
   const pool = new pg.Pool({
-    connectionString: process.env.DATABASE_URL!,
+    connectionString,
     ssl: process.env.NODE_ENV === "production"
       ? { rejectUnauthorized: false }
       : undefined,
