@@ -30,6 +30,7 @@ export default function AdminPage() {
 
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [purgeResult, setPurgeResult] = useState<string | null>(null);
 
   const role = session?.user?.role;
   const authorized = role === "MODERATOR" || role === "COORDINATOR";
@@ -55,6 +56,13 @@ export default function AdminPage() {
       setRejectReason("");
       utils.moderation.queue.invalidate();
       utils.moderation.stats.invalidate();
+    },
+  });
+
+  const purgeMutation = trpc.moderation.purgeOrphanedMedia.useMutation({
+    onSuccess: (data) => {
+      setPurgeResult(`${data.deleted} archivos huérfanos eliminados`);
+      utils.moderation.queue.invalidate();
     },
   });
 
@@ -108,6 +116,28 @@ export default function AdminPage() {
               </Card>
             </div>
           )}
+
+          <Card className="p-4 space-y-2">
+            <p className="text-sm font-medium">Limpiar medios huérfanos</p>
+            <p className="text-xs text-muted-foreground">
+              Eliminar referencias a archivos locales que ya no existen en el servidor.
+            </p>
+            <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                disabled={purgeMutation.isPending}
+                onClick={() => purgeMutation.mutate()}
+              >
+                <RefreshCw size={14} className={purgeMutation.isPending ? "animate-spin" : ""} />
+                Purgar
+              </Button>
+              {purgeResult && (
+                <p className="text-xs text-green-600">{purgeResult}</p>
+              )}
+            </div>
+          </Card>
 
           <Separator />
 

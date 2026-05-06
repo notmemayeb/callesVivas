@@ -101,6 +101,15 @@ export const moderationRouter = createTRPCRouter({
       });
     }),
 
+  purgeOrphanedMedia: moderatorProcedure.mutation(async ({ ctx }) => {
+    const result = await ctx.db.media.deleteMany({
+      where: {
+        url: { startsWith: "/uploads/" },
+      },
+    });
+    return { deleted: result.count };
+  }),
+
   stats: moderatorProcedure.query(async ({ ctx }) => {
     const [pending, approved, total] = await Promise.all([
       ctx.db.incident.count({ where: { status: "DETECTED" } }),

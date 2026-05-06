@@ -87,9 +87,10 @@ export async function POST(req: NextRequest) {
 
   const role = session.user.role;
   const isAuthor = incident.authorId === session.user.id;
+  const isModerator = role === "MODERATOR" || role === "COORDINATOR";
   const isJournalist = role === "JOURNALIST" || role === "COORDINATOR";
 
-  if (!isAuthor && !isJournalist) {
+  if (!isAuthor && !isModerator && !isJournalist) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

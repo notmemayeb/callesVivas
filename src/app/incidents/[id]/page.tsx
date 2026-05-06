@@ -369,8 +369,8 @@ export default function IncidentDetailPage() {
             </div>
           </div>
 
-          {/* Upload for author */}
-          {isAuthor && (
+          {/* Upload for author or moderator */}
+          {(isAuthor || isModerator) && (
             <MediaUpload
               incidentId={id}
               onUploadComplete={() => utils.incidents.byId.invalidate({ id })}
