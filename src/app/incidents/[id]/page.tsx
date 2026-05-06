@@ -24,6 +24,11 @@ import {
   Trash2,
   Upload,
   Loader2,
+  Download,
+  FolderOpen,
+  Pencil,
+  Save,
+  X,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { trpc } from "@/lib/trpc";
@@ -34,8 +39,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { MediaUpload } from "@/components/media/MediaUpload";
-import { CATEGORY_CONFIG, STATUS_CONFIG } from "@/lib/constants";
+import { CATEGORY_CONFIG, STATUS_CONFIG, LIMITS } from "@/lib/constants";
 import type { MacroCategoryKey, IncidentStatusKey } from "@/lib/constants";
 
 export default function IncidentDetailPage() {
@@ -55,6 +61,8 @@ export default function IncidentDetailPage() {
   );
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ title: "", description: "" });
 
   const voteMutation = trpc.votes.vote.useMutation({
     onSuccess: () => {
@@ -75,6 +83,14 @@ export default function IncidentDetailPage() {
       router.push("/");
     },
   });
+
+  const updateMutation = trpc.incidents.update.useMutation({
+    onSuccess: () => {
+      setIsEditing(false);
+      utils.incidents.byId.invalidate({ id });
+    },
+  });
+
 
   if (isLoading) {
     return (
@@ -109,6 +125,25 @@ export default function IncidentDetailPage() {
   const statusConfig = STATUS_CONFIG[incident.status as IncidentStatusKey];
   const CatIcon = catConfig.icon;
 
+  const role = session?.user?.role;
+  const isAuthor = session?.user?.id === incident.authorId;
+  const isModerator = role === "MODERATOR" || role === "COORDINATOR";
+  const isJournalist = role === "JOURNALIST" || role === "COORDINATOR";
+  const canEdit = isModerator || (isAuthor && incident.status === "DETECTED");
+
+  const startEditing = () => {
+    setEditForm({ title: incident.title, description: incident.description });
+    setIsEditing(true);
+  };
+
+  const saveEdit = () => {
+    updateMutation.mutate({
+      id,
+      title: editForm.title,
+      description: editForm.description,
+    });
+  };
+
   return (
     <div className="flex flex-col h-screen">
       <Header />
@@ -131,9 +166,21 @@ export default function IncidentDetailPage() {
                 <CatIcon size={20} style={{ color: catConfig.color }} />
               </div>
               <div className="min-w-0 flex-1">
-                <h1 className="text-xl font-bold leading-tight">
-                  {incident.title}
-                </h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold leading-tight flex-1">
+                    {incident.title}
+                  </h1>
+                  {canEdit && !isEditing && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      onClick={startEditing}
+                    >
+                      <Pencil size={14} />
+                    </Button>
+                  )}
+                </div>
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <Badge
                     variant={statusConfig.variant}
@@ -161,30 +208,92 @@ export default function IncidentDetailPage() {
                   {incident.media
                     .filter((m) => m.type === "PHOTO")
                     .map((m) => (
-                      <img
-                        key={m.id}
-                        src={m.url}
-                        alt=""
-                        className="h-48 rounded-lg object-cover shrink-0"
-                      />
+                      <div key={m.id} className="relative shrink-0">
+                        <img
+                          src={m.url}
+                          alt=""
+                          className="h-48 rounded-lg object-cover"
+                        />
+                        {(isAuthor || isModerator) && (
+                          <MediaDeleteButton
+                            mediaId={m.id}
+                            onDeleted={() => utils.incidents.byId.invalidate({ id })}
+                          />
+                        )}
+                      </div>
                     ))}
                 </div>
               )}
               {incident.media
                 .filter((m) => m.type === "VIDEO")
                 .map((m) => (
-                  <video
-                    key={m.id}
-                    src={m.url}
-                    controls
-                    className="w-full rounded-lg max-h-80"
-                  />
+                  <div key={m.id} className="relative">
+                    <video
+                      src={m.url}
+                      controls
+                      className="w-full rounded-lg max-h-80"
+                    />
+                    {(isAuthor || isModerator) && (
+                      <MediaDeleteButton
+                        mediaId={m.id}
+                        onDeleted={() => utils.incidents.byId.invalidate({ id })}
+                      />
+                    )}
+                  </div>
                 ))}
             </div>
           )}
 
-          {/* Description */}
-          <p className="text-sm leading-relaxed">{incident.description}</p>
+          {/* Description / Edit form */}
+          {isEditing ? (
+            <div className="space-y-3 border border-primary/30 rounded-lg p-3 bg-primary/5">
+              <div>
+                <Label className="text-xs">Título</Label>
+                <Input
+                  value={editForm.title}
+                  onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+                  maxLength={LIMITS.TITLE_MAX_LENGTH}
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {editForm.title.length}/{LIMITS.TITLE_MAX_LENGTH}
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs">Descripción</Label>
+                <Textarea
+                  value={editForm.description}
+                  onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                  maxLength={LIMITS.DESCRIPTION_MAX_LENGTH}
+                  rows={4}
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {editForm.description.length}/{LIMITS.DESCRIPTION_MAX_LENGTH}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1"
+                  disabled={updateMutation.isPending || editForm.title.length < 5 || editForm.description.length < 10}
+                  onClick={saveEdit}
+                >
+                  <Save size={14} /> Guardar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1"
+                  onClick={() => setIsEditing(false)}
+                >
+                  <X size={14} /> Cancelar
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm leading-relaxed">{incident.description}</p>
+          )}
 
           {/* Meta */}
           <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -261,7 +370,7 @@ export default function IncidentDetailPage() {
           </div>
 
           {/* Upload for author */}
-          {session?.user?.id === incident.authorId && (
+          {isAuthor && (
             <MediaUpload
               incidentId={id}
               onUploadComplete={() => utils.incidents.byId.invalidate({ id })}
@@ -269,9 +378,7 @@ export default function IncidentDetailPage() {
           )}
 
           {/* Delete Incident */}
-          {(session?.user?.id === incident.authorId ||
-            session?.user?.role === "MODERATOR" ||
-            session?.user?.role === "COORDINATOR") && (
+          {(isAuthor || isModerator) && (
             <div className="space-y-2">
               {showDeleteConfirm ? (
                 <div className="border border-red-500/30 rounded-lg p-3 space-y-2 bg-red-500/5">
@@ -311,8 +418,7 @@ export default function IncidentDetailPage() {
           )}
 
           {/* Moderator Actions */}
-          {(session?.user?.role === "MODERATOR" ||
-            session?.user?.role === "COORDINATOR") && (
+          {isModerator && (
             <ModeratorActions
               incidentId={id}
               currentStatus={incident.status as IncidentStatusKey}
@@ -321,8 +427,7 @@ export default function IncidentDetailPage() {
           )}
 
           {/* Journalist Actions */}
-          {(session?.user?.role === "JOURNALIST" ||
-            session?.user?.role === "COORDINATOR") && (
+          {isJournalist && (
             <JournalistActions
               incidentId={id}
               currentStatus={incident.status as IncidentStatusKey}
@@ -336,29 +441,17 @@ export default function IncidentDetailPage() {
               <h2 className="text-sm font-semibold flex items-center gap-1">
                 <Newspaper size={14} /> Contenido periodístico
               </h2>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {incident.journalisticContent.map((content) => (
-                  <div
+                  <JournalisticContentItem
                     key={content.id}
-                    className="flex items-center gap-2 p-2 rounded-md border border-border text-sm"
-                  >
-                    {content.type === "VIDEO_REPORT" ? (
-                      <Video size={14} className="text-red-500 shrink-0" />
-                    ) : (
-                      <FileText size={14} className="text-blue-500 shrink-0" />
-                    )}
-                    <span className="flex-1 truncate">{content.title}</span>
-                    {content.newspaperUrl && (
-                      <a
-                        href={content.newspaperUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary"
-                      >
-                        <ExternalLink size={14} />
-                      </a>
-                    )}
-                  </div>
+                    content={content}
+                    canManage={
+                      isJournalist &&
+                      (content.journalistId === session?.user?.id || role === "COORDINATOR")
+                    }
+                    onDeleted={() => utils.incidents.byId.invalidate({ id })}
+                  />
                 ))}
               </div>
             </div>
@@ -547,6 +640,7 @@ function JournalistActions({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("incidentId", incidentId);
+      formData.append("contentOnly", "true");
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       if (res.ok) {
         const data = await res.json();
@@ -709,7 +803,7 @@ function JournalistActions({
                 incidentId,
                 type: contentType,
                 title: contentTitle,
-                newspaperUrl: contentUrl || undefined,
+                contentUrl: contentUrl || undefined,
               })
             }
           >
@@ -813,5 +907,191 @@ function JournalistActions({
         </div>
       )}
     </div>
+  );
+}
+
+function JournalisticContentItem({
+  content,
+  canManage,
+  onDeleted,
+}: {
+  content: {
+    id: string;
+    type: string;
+    title: string;
+    newspaperUrl: string | null;
+    contentUrl: string | null;
+    journalistId: string;
+  };
+  canManage: boolean;
+  onDeleted: () => void;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(content.title);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const updateMutation = trpc.journalist.updateContent.useMutation({
+    onSuccess: () => {
+      setIsEditing(false);
+      onDeleted();
+    },
+  });
+
+  const deleteMutation = trpc.journalist.deleteContent.useMutation({
+    onSuccess: onDeleted,
+  });
+
+  return (
+    <div className="p-3 rounded-md border border-border text-sm space-y-2">
+      <div className="flex items-center gap-2">
+        {content.type === "VIDEO_REPORT" ? (
+          <Video size={14} className="text-red-500 shrink-0" />
+        ) : content.type === "DOCUMENTATION" ? (
+          <FolderOpen size={14} className="text-amber-500 shrink-0" />
+        ) : (
+          <FileText size={14} className="text-blue-500 shrink-0" />
+        )}
+        {isEditing ? (
+          <Input
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            className="flex-1 h-7 text-sm"
+          />
+        ) : (
+          <span className="flex-1 font-medium truncate">{content.title}</span>
+        )}
+        {content.newspaperUrl && !isEditing && (
+          <a
+            href={content.newspaperUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary shrink-0"
+          >
+            <ExternalLink size={14} />
+          </a>
+        )}
+        {canManage && !isEditing && !showDeleteConfirm && (
+          <>
+            <button
+              onClick={() => { setEditTitle(content.title); setIsEditing(true); }}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+            >
+              <Pencil size={12} />
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="text-muted-foreground hover:text-destructive shrink-0"
+            >
+              <Trash2 size={12} />
+            </button>
+          </>
+        )}
+      </div>
+      {isEditing && (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            className="gap-1 h-7 text-xs"
+            disabled={!editTitle.trim() || updateMutation.isPending}
+            onClick={() => updateMutation.mutate({ id: content.id, title: editTitle })}
+          >
+            <Save size={12} /> Guardar
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs"
+            onClick={() => setIsEditing(false)}
+          >
+            Cancelar
+          </Button>
+        </div>
+      )}
+      {showDeleteConfirm && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-destructive">¿Eliminar?</span>
+          <Button
+            size="sm"
+            variant="destructive"
+            className="h-6 text-xs px-2"
+            disabled={deleteMutation.isPending}
+            onClick={() => deleteMutation.mutate({ id: content.id })}
+          >
+            Sí
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 text-xs px-2"
+            onClick={() => setShowDeleteConfirm(false)}
+          >
+            No
+          </Button>
+        </div>
+      )}
+      {content.contentUrl && content.type === "VIDEO_REPORT" && (
+        <video
+          src={content.contentUrl}
+          controls
+          className="w-full rounded-md max-h-64"
+        />
+      )}
+      {content.contentUrl && content.type === "DOCUMENTATION" && (
+        <a
+          href={content.contentUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <Download size={12} /> Descargar documento
+        </a>
+      )}
+    </div>
+  );
+}
+
+function MediaDeleteButton({
+  mediaId,
+  onDeleted,
+}: {
+  mediaId: string;
+  onDeleted: () => void;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  const deleteMutation = trpc.incidents.deleteMedia.useMutation({
+    onSuccess: onDeleted,
+  });
+
+  if (confirm) {
+    return (
+      <div className="absolute top-1 right-1 flex gap-1">
+        <Button
+          size="sm"
+          variant="destructive"
+          className="h-6 text-xs px-2"
+          disabled={deleteMutation.isPending}
+          onClick={() => deleteMutation.mutate({ id: mediaId })}
+        >
+          Sí
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-6 text-xs px-2"
+          onClick={() => setConfirm(false)}
+        >
+          No
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setConfirm(true)}
+      className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-destructive transition-colors"
+    >
+      <X size={14} />
+    </button>
   );
 }

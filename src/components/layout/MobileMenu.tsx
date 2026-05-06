@@ -6,7 +6,6 @@ import {
   Map,
   BarChart3,
   Film,
-  ClipboardList,
   LogOut,
   LogIn,
   UserPlus,
@@ -15,7 +14,6 @@ import {
   Shield,
   Newspaper,
   Crown,
-  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -98,22 +96,6 @@ export function MobileMenu({ onClose }: MobileMenuProps) {
         {session?.user && (
           <>
             <Separator className="my-2" />
-            <Link
-              href={`/user/${session.user.id}/my-incidents`}
-              onClick={onClose}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-muted transition-colors"
-            >
-              <ClipboardList size={20} className="text-muted-foreground" />
-              Mis incidencias
-            </Link>
-            <Link
-              href={`/user/${session.user.id}/followed`}
-              onClick={onClose}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm hover:bg-muted transition-colors"
-            >
-              <Eye size={20} className="text-muted-foreground" />
-              Incidencias seguidas
-            </Link>
             <Link
               href={`/user/${session.user.id}/profile`}
               onClick={onClose}

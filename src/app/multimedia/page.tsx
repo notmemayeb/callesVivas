@@ -63,24 +63,44 @@ export default function MultimediaPage() {
                 const thumb =
                   item.incident.media?.[0]?.thumbnailUrl ||
                   item.incident.media?.[0]?.url;
+                const isLocalVideo = item.contentUrl?.startsWith("/uploads/");
                 return (
                   <div
                     key={item.id}
                     className="bg-card rounded-xl overflow-hidden border border-border shadow-sm hover:shadow-md transition-shadow"
                   >
                     <div className="relative aspect-video bg-muted">
-                      {thumb ? (
-                        <img
-                          src={thumb}
-                          alt=""
-                          className="w-full h-full object-cover"
+                      {isLocalVideo ? (
+                        <video
+                          src={item.contentUrl!}
+                          controls
+                          className="w-full h-full object-contain"
                         />
-                      ) : null}
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center text-primary shadow-lg">
-                          <Play size={20} fill="currentColor" />
+                      ) : thumb ? (
+                        <>
+                          <img
+                            src={thumb}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                          {item.contentUrl && (
+                            <a
+                              href={item.contentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="absolute inset-0 flex items-center justify-center"
+                            >
+                              <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center text-primary shadow-lg">
+                                <Play size={20} fill="currentColor" />
+                              </div>
+                            </a>
+                          )}
+                        </>
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Play size={32} className="text-muted-foreground" />
                         </div>
-                      </div>
+                      )}
                     </div>
                     <div className="p-3 space-y-2">
                       <h4 className="text-sm font-semibold leading-tight line-clamp-2">
@@ -97,14 +117,14 @@ export default function MultimediaPage() {
                         >
                           Ver incidencia
                         </Link>
-                        {item.contentUrl && (
+                        {item.newspaperUrl && (
                           <a
-                            href={item.contentUrl}
+                            href={item.newspaperUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5"
                           >
-                            Ver video <ExternalLink size={10} />
+                            eldiario.es <ExternalLink size={10} />
                           </a>
                         )}
                       </div>

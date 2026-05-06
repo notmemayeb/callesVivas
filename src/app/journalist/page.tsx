@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, type ChangeEvent } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -61,7 +61,7 @@ export default function JournalistPage() {
   });
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const [contactForm, setContactForm] = useState({
     agency: "",
@@ -83,30 +83,41 @@ export default function JournalistPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploadingFile(true);
+    setUploadError(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("incidentId", incidentId);
+      formData.append("contentOnly", "true");
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       if (res.ok) {
         const data = await res.json();
         const url = data.media?.url ?? data.url;
         setUploadedFileUrl(url);
         setContentForm((f) => ({ ...f, contentUrl: url }));
+      } else {
+        const data = await res.json().catch(() => null);
+        setUploadError(data?.error ?? `Error al subir (${res.status})`);
       }
     } catch {
-      // upload failed silently
+      setUploadError("Error de conexión al subir el archivo");
     }
     setIsUploadingFile(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    e.target.value = "";
   };
 
+  const [contentError, setContentError] = useState<string | null>(null);
   const addContentMutation = trpc.journalist.addContent.useMutation({
     onSuccess: () => {
       setAddingContentFor(null);
       setContentForm({ type: "ARTICLE", title: "", newspaperUrl: "", contentUrl: "" });
       setUploadedFileUrl(null);
+      setUploadError(null);
+      setContentError(null);
       utils.journalist.assigned.invalidate();
+    },
+    onError: (err) => {
+      setContentError(err.message);
     },
   });
 
@@ -226,11 +237,13 @@ export default function JournalistPage() {
                       size="sm"
                       variant="outline"
                       className="gap-1"
-                      onClick={() =>
-                        setAddingContentFor(
-                          isAddingContent ? null : incident.id
-                        )
-                      }
+                      onClick={() => {
+                        setAddingContentFor(isAddingContent ? null : incident.id);
+                        setUploadedFileUrl(null);
+                        setUploadError(null);
+                        setContentError(null);
+                        setContentForm({ type: "ARTICLE", title: "", newspaperUrl: "", contentUrl: "" });
+                      }}
                     >
                       <Plus size={14} /> Contenido
                     </Button>
@@ -320,65 +333,19 @@ export default function JournalistPage() {
                         />
                       </div>
                       {(contentForm.type === "VIDEO_REPORT" || contentForm.type === "DOCUMENTATION") && (
-                        <div className="space-y-2">
-                          <Label className="text-xs">
-                            O subir {contentForm.type === "VIDEO_REPORT" ? "vídeo" : "documento"} directamente
-                          </Label>
-                          <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept={contentForm.type === "VIDEO_REPORT"
-                              ? "video/mp4,video/webm,video/quicktime"
-                              : ".pdf,.doc,.docx,.xls,.xlsx"}
-                            className="hidden"
-                            onChange={(e) => handleFileUpload(e, incident.id)}
-                          />
-                          {uploadedFileUrl ? (
-                            <div className="flex items-center gap-2">
-                              {contentForm.type === "VIDEO_REPORT" ? (
-                                <video
-                                  src={uploadedFileUrl}
-                                  className="h-20 rounded-md"
-                                  controls
-                                />
-                              ) : (
-                                <div className="flex items-center gap-1 text-xs text-muted-foreground border border-border rounded-md px-2 py-1">
-                                  <FileText size={14} />
-                                  Documento subido
-                                </div>
-                              )}
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                  setUploadedFileUrl(null);
-                                  setContentForm((f) => ({ ...f, contentUrl: "" }));
-                                }}
-                              >
-                                Quitar
-                              </Button>
-                            </div>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="gap-1"
-                              disabled={isUploadingFile}
-                              onClick={() => fileInputRef.current?.click()}
-                            >
-                              {isUploadingFile ? (
-                                <Loader2 size={14} className="animate-spin" />
-                              ) : (
-                                <Upload size={14} />
-                              )}
-                              {isUploadingFile
-                                ? "Subiendo..."
-                                : contentForm.type === "VIDEO_REPORT"
-                                  ? "Subir vídeo (máx 100MB)"
-                                  : "Subir documento (máx 20MB)"}
-                            </Button>
-                          )}
-                        </div>
+                        <FileUploadField
+                          contentType={contentForm.type}
+                          incidentId={incident.id}
+                          isUploading={isUploadingFile}
+                          uploadedFileUrl={uploadedFileUrl}
+                          uploadError={uploadError}
+                          onUpload={handleFileUpload}
+                          onClear={() => {
+                            setUploadedFileUrl(null);
+                            setUploadError(null);
+                            setContentForm((f) => ({ ...f, contentUrl: "" }));
+                          }}
+                        />
                       )}
                       <Button
                         size="sm"
@@ -386,18 +353,22 @@ export default function JournalistPage() {
                           !contentForm.title.trim() ||
                           addContentMutation.isPending
                         }
-                        onClick={() =>
+                        onClick={() => {
+                          setContentError(null);
                           addContentMutation.mutate({
                             incidentId: incident.id,
                             type: contentForm.type,
                             title: contentForm.title,
                             newspaperUrl: contentForm.newspaperUrl || undefined,
                             contentUrl: contentForm.contentUrl || undefined,
-                          })
-                        }
+                          });
+                        }}
                       >
                         Guardar contenido
                       </Button>
+                      {contentError && (
+                        <p className="text-xs text-destructive">{contentError}</p>
+                      )}
                     </div>
                   )}
 
@@ -517,6 +488,79 @@ export default function JournalistPage() {
         </div>
       </div>
       <BottomNav />
+    </div>
+  );
+}
+
+function FileUploadField({
+  contentType,
+  incidentId,
+  isUploading,
+  uploadedFileUrl,
+  uploadError,
+  onUpload,
+  onClear,
+}: {
+  contentType: "VIDEO_REPORT" | "DOCUMENTATION";
+  incidentId: string;
+  isUploading: boolean;
+  uploadedFileUrl: string | null;
+  uploadError: string | null;
+  onUpload: (e: ChangeEvent<HTMLInputElement>, incidentId: string) => void;
+  onClear: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const isVideo = contentType === "VIDEO_REPORT";
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs">
+        O subir {isVideo ? "vídeo" : "documento"} directamente
+      </Label>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={isVideo ? "video/mp4,video/webm,video/quicktime" : ".pdf,.doc,.docx,.xls,.xlsx"}
+        className="hidden"
+        onChange={(e) => onUpload(e, incidentId)}
+      />
+      {uploadedFileUrl ? (
+        <div className="flex items-center gap-2">
+          {isVideo ? (
+            <video src={uploadedFileUrl} className="h-20 rounded-md" controls />
+          ) : (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground border border-border rounded-md px-2 py-1">
+              <FileText size={14} />
+              Documento subido
+            </div>
+          )}
+          <Button size="sm" variant="ghost" onClick={onClear}>
+            Quitar
+          </Button>
+        </div>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1"
+          disabled={isUploading}
+          onClick={() => inputRef.current?.click()}
+        >
+          {isUploading ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Upload size={14} />
+          )}
+          {isUploading
+            ? "Subiendo..."
+            : isVideo
+              ? "Subir vídeo (máx 100MB)"
+              : "Subir documento (máx 20MB)"}
+        </Button>
+      )}
+      {uploadError && (
+        <p className="text-xs text-destructive">{uploadError}</p>
+      )}
     </div>
   );
 }
