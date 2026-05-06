@@ -112,7 +112,7 @@ PostGIS is declared in the schema but not used in queries (lat/lng stored as Flo
 
 1. Remove PostGIS from `prisma/schema.prisma` (delete `extensions = [postgis]` and `previewFeatures`)
 2. Deploy via App Platform with attached dev database (free with app)
-3. Media uploads stored in `public/uploads/` (ephemeral) — acceptable for low traffic
+3. Media uploads stored in DigitalOcean Spaces (S3-compatible). Set `DO_SPACES_KEY`, `DO_SPACES_SECRET`, `DO_SPACES_BUCKET`, `DO_SPACES_REGION` env vars. Falls back to local `public/uploads/` in dev when vars are unset.
 
 ### App Platform Spec
 
@@ -144,6 +144,20 @@ services:
       - key: NEXT_PUBLIC_MAPBOX_TOKEN
         value: "<mapbox-token>"
         scope: RUN_AND_BUILD_TIME
+      - key: DO_SPACES_KEY
+        value: "<spaces-access-key>"
+        scope: RUN_TIME
+        type: SECRET
+      - key: DO_SPACES_SECRET
+        value: "<spaces-secret-key>"
+        scope: RUN_TIME
+        type: SECRET
+      - key: DO_SPACES_BUCKET
+        value: "callesvivas-media"
+        scope: RUN_TIME
+      - key: DO_SPACES_REGION
+        value: "fra1"
+        scope: RUN_TIME
 databases:
   - name: db
     engine: PG

@@ -2,14 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/server/db";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
+import { uploadFile } from "@/lib/storage";
 import crypto from "crypto";
 
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
-const MAX_PHOTO_SIZE = 20 * 1024 * 1024; // 20MB
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
-const MAX_DOC_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_PHOTO_SIZE = 20 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+const MAX_DOC_SIZE = 20 * 1024 * 1024;
 
 const ALLOWED_TYPES: Record<string, string> = {
   "image/jpeg": "PHOTO",
@@ -95,16 +93,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  await mkdir(UPLOAD_DIR, { recursive: true });
-
   const ext = rawExt.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || "bin";
   const filename = `${crypto.randomUUID()}.${ext}`;
-  const filepath = path.join(UPLOAD_DIR, filename);
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(filepath, buffer);
-
-  const url = `/uploads/${filename}`;
+  const url = await uploadFile(buffer, filename);
 
   if (mediaType === "DOCUMENT" || contentOnly) {
     return NextResponse.json({ url, type: mediaType, size: file.size });
