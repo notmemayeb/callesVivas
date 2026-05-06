@@ -1,6 +1,6 @@
 # CallesVivas
 
-Citizen reporting platform integrated with [eldiario.es](https://eldiario.es). Residents report neighborhood issues via interactive maps, community votes prioritize them, and journalists investigate the top concerns.
+Citizen reporting platform. Residents report neighborhood issues via interactive maps, community votes prioritize them, and journalists investigate the top concerns.
 
 **Live:** [callesvivas.app](https://callesvivas.app)
 
@@ -75,13 +75,12 @@ npm run db:studio     # Open Prisma Studio
 | **Citizen** | Create incidents, vote, comment, follow progress |
 | **Moderator** | Approve/reject incidents, reclassify, change status |
 | **Journalist** | Add articles/videos, register admin contacts, change status |
-| **Coordinator** | All of the above + manage user roles |
 
 ## Incident Lifecycle
 
 ```
-DETECTED → PUBLISHED → IN_CONTACT → ADMIN_CONTACT → MEASURES_ANNOUNCED → AWAITING_RESPONSE → RESOLVED
-                                                                                             → ABANDONED
+DETECTED → PUBLISHED → IN_CONTACT → ADMIN_CONTACT → RESOLVED
+                                                     → ABANDONED
 ```
 
 ## Project Structure
