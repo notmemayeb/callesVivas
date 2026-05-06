@@ -6,15 +6,22 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
+function getConnectionString(): string {
+  const raw = process.env.DATABASE_URL ?? "";
+  try {
+    const url = new URL(raw);
+    url.searchParams.delete("sslmode");
+    url.searchParams.delete("ssl");
+    return url.toString();
+  } catch {
+    return raw;
+  }
+}
+
 function createPrismaClient() {
-  const url = new URL(process.env.DATABASE_URL!);
-  url.searchParams.delete("sslmode");
-  url.searchParams.delete("ssl");
   const pool = new pg.Pool({
-    connectionString: url.toString(),
-    ssl: process.env.NODE_ENV === "production"
-      ? { rejectUnauthorized: false }
-      : undefined,
+    connectionString: getConnectionString(),
+    ssl: { rejectUnauthorized: false },
   });
   const adapter = new PrismaPg(pool);
   return new PrismaClient({
