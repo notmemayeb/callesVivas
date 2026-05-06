@@ -102,72 +102,19 @@ DETECTED → PUBLISHED → IN_CONTACT → ADMIN_CONTACT → MEASURES_ANNOUNCED �
 - **Resolved** (Resuelto): Issue fixed
 - **Abandoned** (Abandonado): Public services declined to act
 
-## Deployment Plan (DigitalOcean)
+## Deployment Plan (DigitalOcean — Minimal)
 
-### Infrastructure (via DigitalOcean MCP)
+**Target: ~$5/mo** using App Platform Basic + included dev database.
 
-1. **Managed PostgreSQL Database** (`db-cluster-create`)
-   - Engine: PostgreSQL 16
-   - Region: `fra1` (Frankfurt, closest to Madrid)
-   - Size: `db-s-1vcpu-1gb` (starter, scale later)
-   - Name: `callesvivas-db`
-   - Note: PostGIS extension must be enabled after creation (`CREATE EXTENSION postgis;`)
+PostGIS is declared in the schema but not used in queries (lat/lng stored as Float). Remove the extension before deploying.
 
-2. **DigitalOcean Spaces** (Object Storage for media uploads)
-   - Create a Space via DO console (Spaces not in MCP)
-   - Region: `fra1`
-   - Name: `callesvivas-media`
-   - CDN enabled for fast image delivery
-   - Generate Spaces access keys for S3-compatible API
+### Setup Steps
 
-3. **App Platform** (`apps-create-app-from-spec`)
-   - Source: GitHub repo `notmemayeb/callesVivas`, branch `main`
-   - Build command: `npm run db:generate && npm run build`
-   - Run command: `npm start`
-   - Instance size: `basic-xxs` (starter) or `professional-xs`
-   - HTTP port: 3000
-   - Auto-deploy on push to `main`
+1. Remove PostGIS from `prisma/schema.prisma` (delete `extensions = [postgis]` and `previewFeatures`)
+2. Deploy via App Platform with attached dev database (free with app)
+3. Media uploads stored in `public/uploads/` (ephemeral) — acceptable for low traffic
 
-### Environment Variables (App Platform)
-
-```
-DATABASE_URL=<managed-db-connection-string>?sslmode=require
-NEXTAUTH_URL=https://callesvivas.app (or DO app URL)
-NEXTAUTH_SECRET=<generate with: openssl rand -base64 32>
-NEXT_PUBLIC_MAPBOX_TOKEN=<mapbox public token>
-GOOGLE_CLIENT_ID=<google oauth client id>
-GOOGLE_CLIENT_SECRET=<google oauth secret>
-DO_SPACES_ENDPOINT=https://fra1.digitaloceanspaces.com
-DO_SPACES_KEY=<spaces access key>
-DO_SPACES_SECRET=<spaces secret key>
-DO_SPACES_BUCKET=callesvivas-media
-```
-
-### Deployment Steps
-
-```bash
-# Step 1: Create managed PostgreSQL cluster
-# MCP: db-cluster-create (engine: pg, version: 16, size: db-s-1vcpu-1gb, region: fra1, name: callesvivas-db, num_nodes: 1)
-
-# Step 2: Get connection string from cluster info
-# MCP: db-cluster-get → connection.uri
-
-# Step 3: Enable PostGIS on the database
-# Connect via psql or DB console: CREATE EXTENSION IF NOT EXISTS postgis;
-
-# Step 4: Create App Platform app from spec
-# MCP: apps-create-app-from-spec with spec below
-
-# Step 5: Push schema and seed
-# Run once after deploy (via App Platform console or job):
-#   npx prisma db push
-#   npx tsx src/server/db/seed.ts
-
-# Step 6: Set custom domain (optional)
-# Configure DNS A record → App Platform IP
-```
-
-### App Platform Spec (YAML)
+### App Platform Spec
 
 ```yaml
 name: callesvivas
@@ -181,14 +128,14 @@ services:
     build_command: npm ci && npm run db:generate && npm run build
     run_command: npm start
     http_port: 3000
-    instance_size_slug: basic-xs
+    instance_size_slug: basic-xxs
     instance_count: 1
     envs:
       - key: DATABASE_URL
-        value: "${callesvivas-db.DATABASE_URL}"
+        value: "${db.DATABASE_URL}"
         scope: RUN_AND_BUILD_TIME
       - key: NEXTAUTH_SECRET
-        value: "<generated-secret>"
+        value: "<openssl rand -base64 32>"
         scope: RUN_AND_BUILD_TIME
         type: SECRET
       - key: NEXTAUTH_URL
@@ -198,30 +145,25 @@ services:
         value: "<mapbox-token>"
         scope: RUN_AND_BUILD_TIME
 databases:
-  - name: callesvivas-db
+  - name: db
     engine: PG
-    version: "16"
-    size: db-s-1vcpu-1gb
-    num_nodes: 1
+    production: false
 ```
 
-### Post-Deployment Checklist
+### MCP Deployment Commands
 
-- [ ] Verify PostGIS extension is enabled
-- [ ] Run `prisma db push` to create tables
-- [ ] Run seed script for categories and neighborhoods
-- [ ] Configure Google OAuth callback URL to production domain
-- [ ] Set up Spaces CORS policy for media uploads
-- [ ] Test auth flow (sign up, sign in, role assignment)
-- [ ] Test incident creation with photo upload
-- [ ] Monitor App Platform logs for errors
+```
+# 1. apps-create-app-from-spec — with the YAML above
+# 2. After first deploy succeeds, run console job:
+#      npx prisma db push && npx tsx src/server/db/seed.ts
+```
 
-### Scaling Notes
+### Post-Deploy Checklist
 
-- App Platform auto-scales horizontally (increase `instance_count`)
-- Database can be resized via `db-cluster-resize`
-- Add CDN via Spaces CDN (`spaces-cdn-create`) for static media
-- Consider connection pooling if DB connections become a bottleneck
+- [ ] Set NEXTAUTH_SECRET (generate a real one)
+- [ ] Set NEXT_PUBLIC_MAPBOX_TOKEN
+- [ ] Run schema push + seed via App Platform console
+- [ ] Test sign-up and incident creation
 
 ## Development Notes
 
