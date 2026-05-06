@@ -3,8 +3,21 @@ import { PrismaClient } from "@/generated/prisma";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 
+function getConnectionString(): string {
+  const raw = process.env.DATABASE_URL ?? "";
+  try {
+    const url = new URL(raw);
+    url.searchParams.delete("sslmode");
+    url.searchParams.delete("ssl");
+    return url.toString();
+  } catch {
+    return raw;
+  }
+}
+
 const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL!.replace(/\?.*$/, ""),
+  connectionString: getConnectionString(),
+  ssl: { rejectUnauthorized: false },
 });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
