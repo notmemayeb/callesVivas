@@ -7,15 +7,23 @@ import path from "path";
 import crypto from "crypto";
 
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_PHOTO_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_DOC_SIZE = 20 * 1024 * 1024; // 20MB
 const ALLOWED_TYPES: Record<string, string> = {
   "image/jpeg": "PHOTO",
   "image/png": "PHOTO",
   "image/webp": "PHOTO",
   "video/mp4": "VIDEO",
   "video/webm": "VIDEO",
+  "video/quicktime": "VIDEO",
   "audio/mpeg": "AUDIO",
   "audio/webm": "AUDIO",
+  "application/pdf": "DOCUMENT",
+  "application/msword": "DOCUMENT",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "DOCUMENT",
+  "application/vnd.ms-excel": "DOCUMENT",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "DOCUMENT",
 };
 
 export async function POST(req: NextRequest) {
@@ -35,13 +43,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json({ error: "File too large" }, { status: 400 });
-  }
-
   const mediaType = ALLOWED_TYPES[file.type];
   if (!mediaType) {
     return NextResponse.json({ error: "Unsupported file type" }, { status: 400 });
+  }
+
+  const maxSize =
+    mediaType === "VIDEO" ? MAX_VIDEO_SIZE :
+    mediaType === "DOCUMENT" ? MAX_DOC_SIZE :
+    MAX_PHOTO_SIZE;
+  if (file.size > maxSize) {
+    return NextResponse.json(
+      { error: `File too large (max ${maxSize / 1024 / 1024}MB)` },
+      { status: 400 }
+    );
   }
 
   const incident = await db.incident.findUnique({
@@ -49,7 +64,15 @@ export async function POST(req: NextRequest) {
     select: { authorId: true },
   });
 
-  if (!incident || incident.authorId !== session.user.id) {
+  if (!incident) {
+    return NextResponse.json({ error: "Incident not found" }, { status: 404 });
+  }
+
+  const role = session.user.role;
+  const isAuthor = incident.authorId === session.user.id;
+  const isJournalist = role === "JOURNALIST" || role === "COORDINATOR";
+
+  if (!isAuthor && !isJournalist) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -64,6 +87,10 @@ export async function POST(req: NextRequest) {
   await writeFile(filepath, buffer);
 
   const url = `/uploads/${filename}`;
+
+  if (mediaType === "DOCUMENT") {
+    return NextResponse.json({ url, type: "DOCUMENT", size: file.size });
+  }
 
   const media = await db.media.create({
     data: {

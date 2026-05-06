@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Camera, X, Loader2 } from "lucide-react";
+import { Camera, X, Loader2, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface MediaUploadProps {
@@ -74,6 +74,10 @@ export function MediaUpload({
                   alt=""
                   className="w-full h-full object-cover rounded-md"
                 />
+              ) : file.type === "VIDEO" ? (
+                <div className="w-full h-full rounded-md bg-muted flex items-center justify-center">
+                  <Video size={24} className="text-muted-foreground" />
+                </div>
               ) : (
                 <div className="w-full h-full rounded-md bg-muted flex items-center justify-center text-xs text-muted-foreground">
                   {file.type}
@@ -115,7 +119,7 @@ export function MediaUpload({
             ) : (
               <Camera size={14} />
             )}
-            {isUploading ? "Subiendo..." : "Añadir fotos"}
+            {isUploading ? "Subiendo..." : "Añadir fotos/vídeos"}
           </Button>
           <p className="text-xs text-muted-foreground mt-1">
             {uploads.length}/{maxFiles} archivos

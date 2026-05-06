@@ -182,9 +182,22 @@ export const incidentsRouter = createTRPCRouter({
       return updated;
     }),
 
-  delete: moderatorProcedure
+  delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const incident = await ctx.db.incident.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { authorId: true },
+      });
+
+      const role = ctx.session.user.role;
+      const isAuthor = incident.authorId === ctx.session.user.id;
+      const isModerator = role === "MODERATOR" || role === "COORDINATOR";
+
+      if (!isAuthor && !isModerator) {
+        throw new Error("No tienes permiso para eliminar esta incidencia");
+      }
+
       return ctx.db.incident.delete({ where: { id: input.id } });
     }),
 

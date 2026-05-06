@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -13,6 +13,8 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
+  Upload,
+  Loader2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Header } from "@/components/layout/Header";
@@ -57,6 +59,9 @@ export default function JournalistPage() {
     newspaperUrl: "",
     contentUrl: "",
   });
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [contactForm, setContactForm] = useState({
     agency: "",
@@ -71,10 +76,36 @@ export default function JournalistPage() {
     { enabled: authorized }
   );
 
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    incidentId: string
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingFile(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("incidentId", incidentId);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        const url = data.media?.url ?? data.url;
+        setUploadedFileUrl(url);
+        setContentForm((f) => ({ ...f, contentUrl: url }));
+      }
+    } catch {
+      // upload failed silently
+    }
+    setIsUploadingFile(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const addContentMutation = trpc.journalist.addContent.useMutation({
     onSuccess: () => {
       setAddingContentFor(null);
       setContentForm({ type: "ARTICLE", title: "", newspaperUrl: "", contentUrl: "" });
+      setUploadedFileUrl(null);
       utils.journalist.assigned.invalidate();
     },
   });
@@ -285,8 +316,70 @@ export default function JournalistPage() {
                           }
                           placeholder="https://..."
                           className="mt-1"
+                          disabled={!!uploadedFileUrl}
                         />
                       </div>
+                      {(contentForm.type === "VIDEO_REPORT" || contentForm.type === "DOCUMENTATION") && (
+                        <div className="space-y-2">
+                          <Label className="text-xs">
+                            O subir {contentForm.type === "VIDEO_REPORT" ? "vídeo" : "documento"} directamente
+                          </Label>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept={contentForm.type === "VIDEO_REPORT"
+                              ? "video/mp4,video/webm,video/quicktime"
+                              : ".pdf,.doc,.docx,.xls,.xlsx"}
+                            className="hidden"
+                            onChange={(e) => handleFileUpload(e, incident.id)}
+                          />
+                          {uploadedFileUrl ? (
+                            <div className="flex items-center gap-2">
+                              {contentForm.type === "VIDEO_REPORT" ? (
+                                <video
+                                  src={uploadedFileUrl}
+                                  className="h-20 rounded-md"
+                                  controls
+                                />
+                              ) : (
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground border border-border rounded-md px-2 py-1">
+                                  <FileText size={14} />
+                                  Documento subido
+                                </div>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setUploadedFileUrl(null);
+                                  setContentForm((f) => ({ ...f, contentUrl: "" }));
+                                }}
+                              >
+                                Quitar
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1"
+                              disabled={isUploadingFile}
+                              onClick={() => fileInputRef.current?.click()}
+                            >
+                              {isUploadingFile ? (
+                                <Loader2 size={14} className="animate-spin" />
+                              ) : (
+                                <Upload size={14} />
+                              )}
+                              {isUploadingFile
+                                ? "Subiendo..."
+                                : contentForm.type === "VIDEO_REPORT"
+                                  ? "Subir vídeo (máx 100MB)"
+                                  : "Subir documento (máx 20MB)"}
+                            </Button>
+                          )}
+                        </div>
+                      )}
                       <Button
                         size="sm"
                         disabled={
