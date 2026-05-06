@@ -79,27 +79,11 @@ export const moderationRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const current = await ctx.db.incident.findUniqueOrThrow({
+      await ctx.db.incident.delete({
         where: { id: input.id },
-        select: { status: true },
       });
 
-      const updated = await ctx.db.incident.update({
-        where: { id: input.id },
-        data: { status: "ABANDONED" },
-      });
-
-      await ctx.db.statusHistory.create({
-        data: {
-          incidentId: input.id,
-          previousStatus: current.status,
-          newStatus: "ABANDONED",
-          authorId: ctx.session.user.id,
-          note: `Rechazada: ${input.reason}`,
-        },
-      });
-
-      return updated;
+      return { deleted: true };
     }),
 
   reclassify: moderatorProcedure
@@ -118,13 +102,12 @@ export const moderationRouter = createTRPCRouter({
     }),
 
   stats: moderatorProcedure.query(async ({ ctx }) => {
-    const [pending, approved, rejected, total] = await Promise.all([
+    const [pending, approved, total] = await Promise.all([
       ctx.db.incident.count({ where: { status: "DETECTED" } }),
       ctx.db.incident.count({ where: { status: "PUBLISHED" } }),
-      ctx.db.incident.count({ where: { status: "ABANDONED" } }),
       ctx.db.incident.count(),
     ]);
 
-    return { pending, approved, rejected, total };
+    return { pending, approved, total };
   }),
 });

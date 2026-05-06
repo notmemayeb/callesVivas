@@ -15,9 +15,14 @@ function getConnectionString(): string {
   }
 }
 
+const connectionString = getConnectionString();
+const isLocalhost =
+  connectionString.includes("localhost") ||
+  connectionString.includes("127.0.0.1");
+
 const pool = new pg.Pool({
-  connectionString: getConnectionString(),
-  ssl: { rejectUnauthorized: false },
+  connectionString,
+  ssl: isLocalhost ? false : { rejectUnauthorized: false },
 });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });

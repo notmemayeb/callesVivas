@@ -11,7 +11,13 @@ const MIME_TYPES: Record<string, string> = {
   webp: "image/webp",
   mp4: "video/mp4",
   webm: "video/webm",
+  mov: "video/quicktime",
   mp3: "audio/mpeg",
+  pdf: "application/pdf",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
 export async function GET(

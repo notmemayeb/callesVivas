@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -21,6 +21,9 @@ import {
   Video,
   FileText,
   ExternalLink,
+  Trash2,
+  Upload,
+  Loader2,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { trpc } from "@/lib/trpc";
@@ -51,6 +54,8 @@ export default function IncidentDetailPage() {
     { enabled: !!session }
   );
 
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   const voteMutation = trpc.votes.vote.useMutation({
     onSuccess: () => {
       utils.incidents.byId.invalidate({ id });
@@ -62,6 +67,12 @@ export default function IncidentDetailPage() {
     onSuccess: () => {
       utils.incidents.byId.invalidate({ id });
       utils.votes.isFollowing.invalidate({ incidentId: id });
+    },
+  });
+
+  const deleteMutation = trpc.incidents.delete.useMutation({
+    onSuccess: () => {
+      router.push("/");
     },
   });
 
@@ -142,17 +153,31 @@ export default function IncidentDetailPage() {
             </div>
           </div>
 
-          {/* Photos */}
+          {/* Media */}
           {incident.media.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-2">
+            <div className="space-y-3">
+              {incident.media.filter((m) => m.type === "PHOTO").length > 0 && (
+                <div className="flex gap-2 overflow-x-auto pb-2">
+                  {incident.media
+                    .filter((m) => m.type === "PHOTO")
+                    .map((m) => (
+                      <img
+                        key={m.id}
+                        src={m.url}
+                        alt=""
+                        className="h-48 rounded-lg object-cover shrink-0"
+                      />
+                    ))}
+                </div>
+              )}
               {incident.media
-                .filter((m) => m.type === "PHOTO")
+                .filter((m) => m.type === "VIDEO")
                 .map((m) => (
-                  <img
+                  <video
                     key={m.id}
                     src={m.url}
-                    alt=""
-                    className="h-48 rounded-lg object-cover shrink-0"
+                    controls
+                    className="w-full rounded-lg max-h-80"
                   />
                 ))}
             </div>
@@ -243,6 +268,48 @@ export default function IncidentDetailPage() {
             />
           )}
 
+          {/* Delete Incident */}
+          {(session?.user?.id === incident.authorId ||
+            session?.user?.role === "MODERATOR" ||
+            session?.user?.role === "COORDINATOR") && (
+            <div className="space-y-2">
+              {showDeleteConfirm ? (
+                <div className="border border-red-500/30 rounded-lg p-3 space-y-2 bg-red-500/5">
+                  <p className="text-xs text-red-600 font-medium">
+                    ¿Seguro que quieres eliminar esta incidencia? Esta acción no se puede deshacer.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="gap-1"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => deleteMutation.mutate({ id })}
+                    >
+                      <Trash2 size={14} /> Eliminar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setShowDeleteConfirm(false)}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <Trash2 size={14} /> Eliminar incidencia
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* Moderator Actions */}
           {(session?.user?.role === "MODERATOR" ||
             session?.user?.role === "COORDINATOR") && (
@@ -258,6 +325,7 @@ export default function IncidentDetailPage() {
             session?.user?.role === "COORDINATOR") && (
             <JournalistActions
               incidentId={id}
+              currentStatus={incident.status as IncidentStatusKey}
               onSuccess={() => utils.incidents.byId.invalidate({ id })}
             />
           )}
@@ -443,11 +511,21 @@ function ModeratorActions({
   );
 }
 
+const JOURNALIST_STATUS_TRANSITIONS: Record<string, string[]> = {
+  PUBLISHED: ["IN_CONTACT"],
+  IN_CONTACT: ["ADMIN_CONTACT", "RESOLVED"],
+  ADMIN_CONTACT: ["MEASURES_ANNOUNCED", "AWAITING_RESPONSE", "RESOLVED"],
+  MEASURES_ANNOUNCED: ["RESOLVED", "AWAITING_RESPONSE"],
+  AWAITING_RESPONSE: ["RESOLVED"],
+};
+
 function JournalistActions({
   incidentId,
+  currentStatus,
   onSuccess,
 }: {
   incidentId: string;
+  currentStatus: IncidentStatusKey;
   onSuccess: () => void;
 }) {
   const [showContent, setShowContent] = useState(false);
@@ -455,6 +533,41 @@ function JournalistActions({
   const [contentTitle, setContentTitle] = useState("");
   const [contentType, setContentType] = useState<"VIDEO_REPORT" | "ARTICLE" | "DOCUMENTATION">("ARTICLE");
   const [contentUrl, setContentUrl] = useState("");
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string | null>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const [statusNote, setStatusNote] = useState("");
+  const [selectedStatus, setSelectedStatus] = useState("");
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingVideo(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("incidentId", incidentId);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        const url = data.media?.url ?? data.url;
+        setUploadedVideoUrl(url);
+        setContentUrl(url);
+      }
+    } catch {
+      // upload failed
+    }
+    setIsUploadingVideo(false);
+    if (videoInputRef.current) videoInputRef.current.value = "";
+  };
+
+  const changeStatusMutation = trpc.journalist.changeStatus.useMutation({
+    onSuccess: () => {
+      setSelectedStatus("");
+      setStatusNote("");
+      onSuccess();
+    },
+  });
   const [agency, setAgency] = useState("");
   const [contactType, setContactType] = useState<"EMAIL" | "CALL" | "VISIT" | "OFFICIAL_FILING">("EMAIL");
   const [summary, setSummary] = useState("");
@@ -464,6 +577,7 @@ function JournalistActions({
       setShowContent(false);
       setContentTitle("");
       setContentUrl("");
+      setUploadedVideoUrl(null);
       onSuccess();
     },
   });
@@ -528,10 +642,68 @@ function JournalistActions({
             value={contentUrl}
             onChange={(e) => setContentUrl(e.target.value)}
             className="text-sm"
+            disabled={!!uploadedVideoUrl}
           />
+          {(contentType === "VIDEO_REPORT" || contentType === "DOCUMENTATION") && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                O subir {contentType === "VIDEO_REPORT" ? "vídeo" : "documento"} directamente
+              </p>
+              <input
+                ref={videoInputRef}
+                type="file"
+                accept={contentType === "VIDEO_REPORT"
+                  ? "video/mp4,video/webm,video/quicktime"
+                  : ".pdf,.doc,.docx,.xls,.xlsx"}
+                className="hidden"
+                onChange={handleVideoUpload}
+              />
+              {uploadedVideoUrl ? (
+                <div className="flex items-center gap-2">
+                  {contentType === "VIDEO_REPORT" ? (
+                    <video src={uploadedVideoUrl} className="h-20 rounded-md" controls />
+                  ) : (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground border border-border rounded-md px-2 py-1">
+                      <FileText size={14} />
+                      Documento subido
+                    </div>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setUploadedVideoUrl(null);
+                      setContentUrl("");
+                    }}
+                  >
+                    Quitar
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1"
+                  disabled={isUploadingVideo}
+                  onClick={() => videoInputRef.current?.click()}
+                >
+                  {isUploadingVideo ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Upload size={14} />
+                  )}
+                  {isUploadingVideo
+                    ? "Subiendo..."
+                    : contentType === "VIDEO_REPORT"
+                      ? "Subir vídeo (máx 100MB)"
+                      : "Subir documento (máx 20MB)"}
+                </Button>
+              )}
+            </div>
+          )}
           <Button
             size="sm"
-            disabled={!contentTitle.trim() || addContentMutation.isPending}
+            disabled={!contentTitle.trim() || addContentMutation.isPending || isUploadingVideo}
             onClick={() =>
               addContentMutation.mutate({
                 incidentId,
@@ -589,6 +761,55 @@ function JournalistActions({
           >
             Guardar
           </Button>
+        </div>
+      )}
+
+      {/* Status Change */}
+      {(JOURNALIST_STATUS_TRANSITIONS[currentStatus]?.length ?? 0) > 0 && (
+        <div className="space-y-2 pt-2 border-t border-blue-500/20">
+          <p className="text-xs text-muted-foreground">Cambiar estado</p>
+          <div className="flex gap-2 flex-wrap">
+            {JOURNALIST_STATUS_TRANSITIONS[currentStatus]?.map((s) => {
+              const cfg = STATUS_CONFIG[s as IncidentStatusKey];
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSelectedStatus(s === selectedStatus ? "" : s)}
+                  className={`px-2 py-1 rounded-md border text-xs transition-colors ${
+                    selectedStatus === s
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-primary/30"
+                  }`}
+                >
+                  {cfg.label}
+                </button>
+              );
+            })}
+          </div>
+          {selectedStatus && (
+            <div className="space-y-2">
+              <Input
+                placeholder="Nota (opcional)"
+                value={statusNote}
+                onChange={(e) => setStatusNote(e.target.value)}
+                className="text-sm"
+              />
+              <Button
+                size="sm"
+                disabled={changeStatusMutation.isPending}
+                onClick={() =>
+                  changeStatusMutation.mutate({
+                    incidentId,
+                    status: selectedStatus as IncidentStatusKey,
+                    note: statusNote || undefined,
+                  })
+                }
+              >
+                Cambiar a {STATUS_CONFIG[selectedStatus as IncidentStatusKey]?.label}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
