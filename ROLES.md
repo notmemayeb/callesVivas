@@ -1,0 +1,12 @@
+Roles: 
+- Citizen (Ciudadano):
+    - Create incedent
+    - Upvote incedents 
+    - Comment incedent
+    - Follow incedent progress
+- Journalist (Periodista):
+    - Add related content to existing incedent
+    - Change incedent status
+- Moderator (Moderador):
+    - Validate (Aprove, deny or ask for changes) created incedents
+    - Create roverall incedent's report
