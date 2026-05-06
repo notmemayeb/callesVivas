@@ -10,6 +10,7 @@ const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 const MAX_PHOTO_SIZE = 20 * 1024 * 1024; // 20MB
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
 const MAX_DOC_SIZE = 20 * 1024 * 1024; // 20MB
+
 const ALLOWED_TYPES: Record<string, string> = {
   "image/jpeg": "PHOTO",
   "image/png": "PHOTO",
@@ -26,6 +27,22 @@ const ALLOWED_TYPES: Record<string, string> = {
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "DOCUMENT",
 };
 
+const EXT_FALLBACK: Record<string, string> = {
+  jpg: "PHOTO",
+  jpeg: "PHOTO",
+  png: "PHOTO",
+  webp: "PHOTO",
+  mp4: "VIDEO",
+  webm: "VIDEO",
+  mov: "VIDEO",
+  mp3: "AUDIO",
+  pdf: "DOCUMENT",
+  doc: "DOCUMENT",
+  docx: "DOCUMENT",
+  xls: "DOCUMENT",
+  xlsx: "DOCUMENT",
+};
+
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
@@ -35,6 +52,7 @@ export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   const incidentId = formData.get("incidentId") as string | null;
+  const contentOnly = formData.get("contentOnly") === "true";
 
   if (!file || !incidentId) {
     return NextResponse.json(
@@ -43,7 +61,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const mediaType = ALLOWED_TYPES[file.type];
+  const rawExt = (file.name.split(".").pop() || "").toLowerCase();
+  const mediaType = ALLOWED_TYPES[file.type] || EXT_FALLBACK[rawExt];
   if (!mediaType) {
     return NextResponse.json({ error: "Unsupported file type" }, { status: 400 });
   }
@@ -78,8 +97,7 @@ export async function POST(req: NextRequest) {
 
   await mkdir(UPLOAD_DIR, { recursive: true });
 
-  const rawExt = file.name.split(".").pop() || "bin";
-  const ext = rawExt.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10);
+  const ext = rawExt.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || "bin";
   const filename = `${crypto.randomUUID()}.${ext}`;
   const filepath = path.join(UPLOAD_DIR, filename);
 
@@ -88,8 +106,8 @@ export async function POST(req: NextRequest) {
 
   const url = `/uploads/${filename}`;
 
-  if (mediaType === "DOCUMENT") {
-    return NextResponse.json({ url, type: "DOCUMENT", size: file.size });
+  if (mediaType === "DOCUMENT" || contentOnly) {
+    return NextResponse.json({ url, type: mediaType, size: file.size });
   }
 
   const media = await db.media.create({

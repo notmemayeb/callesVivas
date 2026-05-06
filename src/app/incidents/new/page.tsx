@@ -4,7 +4,7 @@ import { Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { ArrowLeft, ArrowRight, MapPin, Locate, Check } from "lucide-react";
+import { ArrowLeft, ArrowRight, MapPin, Locate, Check, AlertCircle } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { trpc } from "@/lib/trpc";
 import { Header } from "@/components/layout/Header";
@@ -30,6 +30,38 @@ interface FormData {
   neighborhoodId: string;
 }
 
+interface ValidationErrors {
+  [key: string]: string;
+}
+
+function validateStep1(form: FormData): ValidationErrors {
+  const errors: ValidationErrors = {};
+  if (form.latitude === 0 && form.longitude === 0) {
+    errors.location = "Selecciona una ubicación en el mapa";
+  }
+  return errors;
+}
+
+function validateStep2(form: FormData): ValidationErrors {
+  const errors: ValidationErrors = {};
+  if (!form.macroCategory) {
+    errors.macroCategory = "Selecciona una categoría";
+  }
+  if (!form.categoryId) {
+    errors.categoryId = "Selecciona una subcategoría";
+  }
+  if (!form.neighborhoodId) {
+    errors.neighborhoodId = "Selecciona un barrio";
+  }
+  if (form.title.length < 5) {
+    errors.title = "El título debe tener al menos 5 caracteres";
+  }
+  if (form.description.length < 10) {
+    errors.description = "La descripción debe tener al menos 10 caracteres";
+  }
+  return errors;
+}
+
 export default function NewIncidentPage() {
   return (
     <Suspense>
@@ -44,6 +76,7 @@ function NewIncidentContent() {
   const { data: session, status } = useSession();
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errors, setErrors] = useState<ValidationErrors>({});
 
   const [form, setForm] = useState<FormData>({
     latitude: parseFloat(searchParams.get("lat") || "") || MADRID_CENTER.lat,
@@ -72,15 +105,33 @@ function NewIncidentContent() {
     return null;
   }
 
-  const canAdvanceStep1 = form.latitude !== 0 && form.longitude !== 0;
-  const canAdvanceStep2 =
-    form.title.length >= 5 &&
-    form.description.length >= 10 &&
-    form.categoryId !== "" &&
-    form.neighborhoodId !== "";
+  const handleNext = () => {
+    if (step === 1) {
+      const stepErrors = validateStep1(form);
+      if (Object.keys(stepErrors).length > 0) {
+        setErrors(stepErrors);
+        return;
+      }
+      setErrors({});
+      setStep(2);
+    } else if (step === 2) {
+      const stepErrors = validateStep2(form);
+      if (Object.keys(stepErrors).length > 0) {
+        setErrors(stepErrors);
+        return;
+      }
+      setErrors({});
+      setStep(3);
+    }
+  };
 
   const handleSubmit = async () => {
-    if (!canAdvanceStep2) return;
+    const stepErrors = validateStep2(form);
+    if (Object.keys(stepErrors).length > 0) {
+      setErrors(stepErrors);
+      setStep(2);
+      return;
+    }
     setIsSubmitting(true);
     createMutation.mutate({
       title: form.title,
@@ -101,7 +152,10 @@ function NewIncidentContent() {
           {/* Progress */}
           <div className="flex items-center gap-2">
             <button
-              onClick={() => (step > 1 ? setStep(step - 1) : router.back())}
+              onClick={() => {
+                setErrors({});
+                step > 1 ? setStep(step - 1) : router.back();
+              }}
               className="text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft size={20} />
@@ -123,6 +177,7 @@ function NewIncidentContent() {
             <Step1Location
               form={form}
               setForm={setForm}
+              errors={errors}
             />
           )}
 
@@ -132,6 +187,7 @@ function NewIncidentContent() {
               setForm={setForm}
               neighborhoods={neighborhoods || []}
               categories={categories || []}
+              errors={errors}
             />
           )}
 
@@ -144,7 +200,10 @@ function NewIncidentContent() {
             {step > 1 && (
               <Button
                 variant="outline"
-                onClick={() => setStep(step - 1)}
+                onClick={() => {
+                  setErrors({});
+                  setStep(step - 1);
+                }}
                 className="flex-1"
               >
                 <ArrowLeft size={16} className="mr-1" /> Anterior
@@ -152,8 +211,7 @@ function NewIncidentContent() {
             )}
             {step < 3 && (
               <Button
-                onClick={() => setStep(step + 1)}
-                disabled={step === 1 ? !canAdvanceStep1 : !canAdvanceStep2}
+                onClick={handleNext}
                 className="flex-1"
               >
                 Siguiente <ArrowRight size={16} className="ml-1" />
@@ -162,7 +220,7 @@ function NewIncidentContent() {
             {step === 3 && (
               <Button
                 onClick={handleSubmit}
-                disabled={isSubmitting || !canAdvanceStep2}
+                disabled={isSubmitting}
                 className="flex-1"
               >
                 <Check size={16} className="mr-1" />
@@ -176,12 +234,24 @@ function NewIncidentContent() {
   );
 }
 
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <p className="flex items-center gap-1 text-xs text-destructive mt-1">
+      <AlertCircle size={12} />
+      {message}
+    </p>
+  );
+}
+
 function Step1Location({
   form,
   setForm,
+  errors,
 }: {
   form: FormData;
   setForm: React.Dispatch<React.SetStateAction<FormData>>;
+  errors: ValidationErrors;
 }) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
@@ -268,6 +338,7 @@ function Step1Location({
           {form.latitude.toFixed(5)}, {form.longitude.toFixed(5)}
         </span>
       </div>
+      <FieldError message={errors.location} />
 
       <div>
         <Label htmlFor="address">Dirección (opcional)</Label>
@@ -289,11 +360,13 @@ function Step2Details({
   setForm,
   neighborhoods,
   categories,
+  errors,
 }: {
   form: FormData;
   setForm: React.Dispatch<React.SetStateAction<FormData>>;
   neighborhoods: { id: string; name: string; slug: string }[];
   categories: { id: string; name: string; macroCategory: string }[];
+  errors: ValidationErrors;
 }) {
   const subcategories = categories.filter(
     (c) => c.macroCategory === form.macroCategory
@@ -345,6 +418,7 @@ function Step2Details({
             }
           )}
         </div>
+        <FieldError message={errors.macroCategory} />
       </div>
 
       {/* Subcategory selector */}
@@ -369,8 +443,10 @@ function Step2Details({
               </button>
             ))}
           </div>
+          <FieldError message={errors.categoryId} />
         </div>
       )}
+      {!form.macroCategory && <FieldError message={errors.categoryId} />}
 
       {/* Neighborhood */}
       <div>
@@ -390,6 +466,7 @@ function Step2Details({
             </option>
           ))}
         </select>
+        <FieldError message={errors.neighborhoodId} />
       </div>
 
       {/* Title */}
@@ -407,6 +484,7 @@ function Step2Details({
         <p className="text-xs text-muted-foreground mt-1">
           {form.title.length}/{LIMITS.TITLE_MAX_LENGTH}
         </p>
+        <FieldError message={errors.title} />
       </div>
 
       {/* Description */}
@@ -425,6 +503,7 @@ function Step2Details({
         <p className="text-xs text-muted-foreground mt-1">
           {form.description.length}/{LIMITS.DESCRIPTION_MAX_LENGTH}
         </p>
+        <FieldError message={errors.description} />
       </div>
     </div>
   );

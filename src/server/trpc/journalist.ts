@@ -40,8 +40,8 @@ export const journalistRouter = createTRPCRouter({
         incidentId: z.string(),
         type: z.nativeEnum(JournalisticContentType),
         title: z.string().min(1).max(200),
-        newspaperUrl: z.string().url().optional(),
-        contentUrl: z.string().url().optional(),
+        newspaperUrl: z.string().min(1).optional(),
+        contentUrl: z.string().min(1).optional(),
         duration: z.number().int().positive().optional(),
       })
     )
@@ -111,6 +111,32 @@ export const journalistRouter = createTRPCRouter({
         },
         orderBy: { createdAt: "desc" },
         take: input.limit,
+      });
+    }),
+
+  updateContent: journalistProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        title: z.string().min(1).max(200).optional(),
+        newspaperUrl: z.string().min(1).optional(),
+        contentUrl: z.string().min(1).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const content = await ctx.db.journalisticContent.findUniqueOrThrow({
+        where: { id: input.id },
+      });
+      if (
+        content.journalistId !== ctx.session.user.id &&
+        ctx.session.user.role !== "COORDINATOR"
+      ) {
+        throw new Error("No autorizado");
+      }
+      const { id, ...data } = input;
+      return ctx.db.journalisticContent.update({
+        where: { id },
+        data,
       });
     }),
 

@@ -182,6 +182,59 @@ export const incidentsRouter = createTRPCRouter({
       return updated;
     }),
 
+  deleteMedia: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const media = await ctx.db.media.findUniqueOrThrow({
+        where: { id: input.id },
+        include: { incident: { select: { authorId: true } } },
+      });
+
+      const role = ctx.session.user.role;
+      const isAuthor = media.incident.authorId === ctx.session.user.id;
+      const isModerator = role === "MODERATOR" || role === "COORDINATOR";
+
+      if (!isAuthor && !isModerator) {
+        throw new Error("No tienes permiso para eliminar este archivo");
+      }
+
+      return ctx.db.media.delete({ where: { id: input.id } });
+    }),
+
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        title: z.string().min(5).max(80).optional(),
+        description: z.string().min(10).max(500).optional(),
+        categoryId: z.string().optional(),
+        neighborhoodId: z.string().optional(),
+        addressText: z.string().optional(),
+        latitude: z.number().min(-90).max(90).optional(),
+        longitude: z.number().min(-180).max(180).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const incident = await ctx.db.incident.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { authorId: true, status: true },
+      });
+
+      const role = ctx.session.user.role;
+      const isAuthor = incident.authorId === ctx.session.user.id;
+      const isModerator = role === "MODERATOR" || role === "COORDINATOR";
+
+      if (!isModerator && !(isAuthor && incident.status === "DETECTED")) {
+        throw new Error("No tienes permiso para editar esta incidencia");
+      }
+
+      const { id, ...data } = input;
+      return ctx.db.incident.update({
+        where: { id },
+        data,
+      });
+    }),
+
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {

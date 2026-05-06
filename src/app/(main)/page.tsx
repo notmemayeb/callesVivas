@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Plus, ClipboardList, Eye } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { CategoryFilters } from "@/components/layout/CategoryFilters";
 import { Top5Bar } from "@/components/incidents/Top5Bar";
@@ -77,22 +77,6 @@ export default function HomePage() {
         onToggle={toggleCategory}
       />
 
-      {session?.user && (
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-card">
-          <Link href={`/user/${session.user.id}/my-incidents`}>
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-              <ClipboardList size={14} />
-              Mis incidencias
-            </Button>
-          </Link>
-          <Link href={`/user/${session.user.id}/followed`}>
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-              <Eye size={14} />
-              Seguidas
-            </Button>
-          </Link>
-        </div>
-      )}
 
       <div className="flex-1 relative min-h-0 overflow-hidden">
         <InteractiveMap
