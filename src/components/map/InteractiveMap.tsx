@@ -5,7 +5,7 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { MADRID_CENTER, DEFAULT_ZOOM, CATEGORY_CONFIG } from "@/lib/constants";
 import type { MacroCategoryKey } from "@/lib/constants";
-import { Locate } from "lucide-react";
+import { Locate, ThumbsUp, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export interface MapIncident {
@@ -16,13 +16,24 @@ export interface MapIncident {
   macroCategory: MacroCategoryKey;
   status: string;
   votesCount: number;
+  thumbnailUrl?: string | null;
+}
+
+interface HoveredState {
+  incident: MapIncident;
+  x: number;
+  y: number;
 }
 
 interface InteractiveMapProps {
   incidents?: MapIncident[];
   selectedCategories?: MacroCategoryKey[];
+  votedIds?: Set<string>;
+  followedIds?: Set<string>;
   onIncidentClick?: (id: string) => void;
   onMapLongPress?: (lat: number, lng: number) => void;
+  onVote?: (id: string) => void;
+  onFollow?: (id: string) => void;
 }
 
 const SOURCE_ID = "incidents";
@@ -33,16 +44,50 @@ const UNCLUSTERED_LAYER = "unclustered-point";
 export function InteractiveMap({
   incidents = [],
   selectedCategories = [],
+  votedIds = new Set(),
+  followedIds = new Set(),
   onIncidentClick,
   onMapLongPress,
+  onVote,
+  onFollow,
 }: InteractiveMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [hovered, setHovered] = useState<HoveredState | null>(null);
+  const hoveredRef = useRef<HoveredState | null>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const popupHovered = useRef(false);
   const onIncidentClickRef = useRef(onIncidentClick);
   onIncidentClickRef.current = onIncidentClick;
   const onMapLongPressRef = useRef(onMapLongPress);
   onMapLongPressRef.current = onMapLongPress;
+  const incidentsRef = useRef(incidents);
+  incidentsRef.current = incidents;
+
+  const scheduleHide = useCallback(() => {
+    hideTimer.current = setTimeout(() => {
+      if (!popupHovered.current) {
+        hoveredRef.current = null;
+        setHovered(null);
+      }
+    }, 150);
+  }, []);
+
+  const cancelHide = useCallback(() => {
+    if (hideTimer.current) {
+      clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+  }, []);
+
+  const updatePopupPosition = useCallback(() => {
+    const m = map.current;
+    const h = hoveredRef.current;
+    if (!m || !h) return;
+    const point = m.project([h.incident.longitude, h.incident.latitude]);
+    setHovered({ ...h, x: point.x, y: point.y });
+  }, []);
 
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
@@ -167,33 +212,27 @@ export function InteractiveMap({
       m.on("mouseleave", CLUSTER_LAYER, () => {
         m.getCanvas().style.cursor = "";
       });
-      const popup = new mapboxgl.Popup({
-        closeButton: false,
-        closeOnClick: false,
-        offset: 12,
-        className: "incident-popup",
-      });
 
       m.on("mouseenter", UNCLUSTERED_LAYER, (e) => {
         m.getCanvas().style.cursor = "pointer";
+        cancelHide();
         const feature = e.features?.[0];
         if (!feature || feature.geometry.type !== "Point") return;
-        const coords = feature.geometry.coordinates.slice() as [number, number];
-        const props = feature.properties!;
-        popup
-          .setLngLat(coords)
-          .setHTML(
-            `<div style="font-family:system-ui;max-width:200px">
-              <p style="font-weight:600;font-size:13px;margin:0 0 4px">${props.title}</p>
-              <span style="font-size:11px;color:#666">⭐ ${props.votesCount} votos</span>
-            </div>`
-          )
-          .addTo(m);
+        const id = feature.properties?.id;
+        const incident = incidentsRef.current.find((i) => i.id === id);
+        if (!incident) return;
+        const point = m.project([incident.longitude, incident.latitude]);
+        const state: HoveredState = { incident, x: point.x, y: point.y };
+        hoveredRef.current = state;
+        setHovered(state);
       });
+
       m.on("mouseleave", UNCLUSTERED_LAYER, () => {
         m.getCanvas().style.cursor = "";
-        popup.remove();
+        scheduleHide();
       });
+
+      m.on("move", updatePopupPosition);
 
       setMapLoaded(true);
     });
@@ -264,6 +303,80 @@ export function InteractiveMap({
   return (
     <div className="absolute inset-0">
       <div ref={mapContainer} className="w-full h-full" />
+
+      {hovered && (() => {
+        const liveIncident = incidents.find((i) => i.id === hovered.incident.id) ?? hovered.incident;
+        return (
+        <div
+          className="absolute z-50"
+          style={{
+            left: hovered.x,
+            top: hovered.y,
+            transform: "translate(-50%, -100%) translateY(-16px)",
+          }}
+          onMouseEnter={() => {
+            popupHovered.current = true;
+            cancelHide();
+          }}
+          onMouseLeave={() => {
+            popupHovered.current = false;
+            scheduleHide();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-card rounded-xl shadow-xl border border-border overflow-hidden w-56">
+            {liveIncident.thumbnailUrl && (
+              <img
+                src={liveIncident.thumbnailUrl}
+                alt=""
+                className="w-full h-28 object-cover"
+              />
+            )}
+            <div className="p-3 space-y-2">
+              <p className="font-semibold text-sm leading-tight line-clamp-2">
+                {liveIncident.title}
+              </p>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <ThumbsUp size={12} />
+                <span>{liveIncident.votesCount} votos</span>
+              </div>
+              <div className="flex gap-1.5">
+                {(() => {
+                  const hasVoted = votedIds.has(liveIncident.id);
+                  const hasFollowed = followedIds.has(liveIncident.id);
+                  return (
+                    <>
+                      <Button
+                        size="sm"
+                        variant={hasVoted ? "default" : "outline"}
+                        className="flex-1 gap-1 h-7 text-xs"
+                        onClick={() => onVote?.(liveIncident.id)}
+                      >
+                        <ThumbsUp size={12} fill={hasVoted ? "currentColor" : "none"} />
+                        {hasVoted ? "Votado" : "Votar"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={hasFollowed ? "default" : "outline"}
+                        className="flex-1 gap-1 h-7 text-xs"
+                        onClick={() => onFollow?.(liveIncident.id)}
+                      >
+                        <Bell size={12} fill={hasFollowed ? "currentColor" : "none"} />
+                        {hasFollowed ? "Siguiendo" : "Seguir"}
+                      </Button>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+          <div
+            className="w-3 h-3 bg-card border-b border-r border-border rotate-45 mx-auto -mt-1.5"
+          />
+        </div>
+        );
+      })()}
 
       <Button
         variant="outline"
