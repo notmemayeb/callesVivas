@@ -21,20 +21,82 @@ export default function HomePage() {
     MacroCategoryKey[]
   >([]);
 
+  const utils = trpc.useUtils();
   const { data: incidentsData } = trpc.incidents.list.useQuery({ limit: 50 });
   const { data: top5Data } = trpc.incidents.top.useQuery({ period: "week" });
 
+  const { data: votedIdsData } = trpc.votes.myVotedIds.useQuery(undefined, {
+    enabled: !!session,
+  });
+  const { data: followedIdsData } = trpc.votes.myFollowedIds.useQuery(undefined, {
+    enabled: !!session,
+  });
+
+  const votedIds = useMemo(() => new Set(votedIdsData ?? []), [votedIdsData]);
+  const followedIds = useMemo(() => new Set(followedIdsData ?? []), [followedIdsData]);
+
+  const voteMutation = trpc.votes.vote.useMutation({
+    onMutate: async ({ incidentId }) => {
+      await utils.votes.myVotedIds.cancel();
+      await utils.incidents.list.cancel();
+      const prevVoted = utils.votes.myVotedIds.getData();
+      const prevList = utils.incidents.list.getData({ limit: 50 });
+      const wasVoted = prevVoted?.includes(incidentId);
+      utils.votes.myVotedIds.setData(undefined,
+        wasVoted ? (prevVoted ?? []).filter((id) => id !== incidentId) : [...(prevVoted ?? []), incidentId]
+      );
+      utils.incidents.list.setData({ limit: 50 }, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          items: old.items.map((i) =>
+            i.id === incidentId
+              ? { ...i, votesCount: i.votesCount + (wasVoted ? -1 : 1) }
+              : i
+          ),
+        };
+      });
+      return { prevVoted, prevList };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prevVoted) utils.votes.myVotedIds.setData(undefined, ctx.prevVoted);
+      if (ctx?.prevList) utils.incidents.list.setData({ limit: 50 }, ctx.prevList);
+    },
+    onSettled: () => {
+      utils.incidents.list.invalidate();
+      utils.votes.myVotedIds.invalidate();
+    },
+  });
+  const followMutation = trpc.votes.follow.useMutation({
+    onMutate: async ({ incidentId }) => {
+      await utils.votes.myFollowedIds.cancel();
+      const prev = utils.votes.myFollowedIds.getData();
+      const wasFollowed = prev?.includes(incidentId);
+      utils.votes.myFollowedIds.setData(undefined,
+        wasFollowed ? (prev ?? []).filter((id) => id !== incidentId) : [...(prev ?? []), incidentId]
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) utils.votes.myFollowedIds.setData(undefined, ctx.prev);
+    },
+    onSettled: () => utils.votes.myFollowedIds.invalidate(),
+  });
+
   const mapIncidents = useMemo(() => {
     if (!incidentsData?.items) return [];
-    return incidentsData.items.map((i) => ({
-      id: i.id,
-      latitude: i.latitude,
-      longitude: i.longitude,
-      title: i.title,
-      macroCategory: i.category.macroCategory as MacroCategoryKey,
-      status: i.status,
-      votesCount: i.votesCount,
-    }));
+    return incidentsData.items
+      .filter((i) => i.status === "PUBLISHED")
+      .map((i) => ({
+        id: i.id,
+        latitude: i.latitude,
+        longitude: i.longitude,
+        title: i.title,
+        macroCategory: i.category.macroCategory as MacroCategoryKey,
+        status: i.status,
+        votesCount: i.votesCount,
+        thumbnailUrl: i.media[0]?.thumbnailUrl ?? i.media[0]?.url ?? null,
+      }));
   }, [incidentsData]);
 
   const top5Items = useMemo(() => {
@@ -69,6 +131,28 @@ export default function HomePage() {
     [router]
   );
 
+  const handleVote = useCallback(
+    (id: string) => {
+      if (!session) {
+        router.push("/signin");
+        return;
+      }
+      voteMutation.mutate({ incidentId: id });
+    },
+    [session, router, voteMutation]
+  );
+
+  const handleFollow = useCallback(
+    (id: string) => {
+      if (!session) {
+        router.push("/signin");
+        return;
+      }
+      followMutation.mutate({ incidentId: id });
+    },
+    [session, router, followMutation]
+  );
+
   return (
     <div className="flex flex-col h-screen">
       <Header />
@@ -82,8 +166,12 @@ export default function HomePage() {
         <InteractiveMap
           incidents={mapIncidents}
           selectedCategories={selectedCategories}
+          votedIds={votedIds}
+          followedIds={followedIds}
           onIncidentClick={handleIncidentClick}
           onMapLongPress={handleMapLongPress}
+          onVote={handleVote}
+          onFollow={handleFollow}
         />
 
         <Link

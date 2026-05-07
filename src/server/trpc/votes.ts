@@ -106,4 +106,20 @@ export const votesRouter = createTRPCRouter({
       });
       return !!follow;
     }),
+
+  myVotedIds: protectedProcedure.query(async ({ ctx }) => {
+    const votes = await ctx.db.vote.findMany({
+      where: { userId: ctx.session.user.id, type: "SEVERITY" },
+      select: { incidentId: true },
+    });
+    return votes.map((v) => v.incidentId);
+  }),
+
+  myFollowedIds: protectedProcedure.query(async ({ ctx }) => {
+    const follows = await ctx.db.follow.findMany({
+      where: { userId: ctx.session.user.id },
+      select: { incidentId: true },
+    });
+    return follows.map((f) => f.incidentId);
+  }),
 });
